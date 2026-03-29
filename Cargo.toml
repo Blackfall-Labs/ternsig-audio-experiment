@@ -1,0 +1,10 @@
+[package]
+name = "ternsig-audio-experiment"
+version = "0.1.0"
+edition = "2021"
+description = "Experiment: can audio survive a round-trip through ternary signal encoding?"
+
+[dependencies]
+ternary-signal = { path = "../ternary-signal" }
+symphonia = { version = "0.5", features = ["mp3"] }
+hound = "3.5"
