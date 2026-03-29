@@ -7,7 +7,7 @@
 //! and is representational decomposition (p × m × k) more efficient than
 //! raw sample depth?
 
-mod codec;
+use ternsig_audio_experiment::codec;
 
 use std::env;
 use std::fs::File;

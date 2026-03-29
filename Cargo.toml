@@ -2,9 +2,21 @@
 name = "ternsig-audio-experiment"
 version = "0.1.0"
 edition = "2021"
-description = "Experiment: can audio survive a round-trip through ternary signal encoding?"
+description = "Experiment: can audio and video survive a round-trip through ternary signal encoding?"
 
 [dependencies]
 ternary-signal = { path = "../ternary-signal" }
 symphonia = { version = "0.5", features = ["mp3"] }
 hound = "3.5"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+mp4 = "0.14"
+openh264 = "0.6"
+gif = "0.13"
+
+[[bin]]
+name = "ternsig-audio"
+path = "src/main.rs"
+
+[[bin]]
+name = "ternsig-video"
+path = "src/bin/video.rs"

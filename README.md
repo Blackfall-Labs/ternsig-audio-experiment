@@ -1,6 +1,6 @@
-# Ternsig Audio Experiment
+# Ternsig Audio/Video Experiment
 
-Can audio survive a round-trip through ternary signal encoding?
+Can audio and video survive a round-trip through ternary signal encoding?
 
 ```
 PCM (i16) → PackedSignal (1 byte) → Delta + Huffman → Wire → Decompress → PCM (i16)
@@ -188,35 +188,94 @@ Three modes, receiver's choice:
 
 ---
 
-## Usage
+## Video Encoding
 
-```bash
-cargo build --release
-./target/release/ternsig-audio-experiment <input.mp3>
+The same PackedSignal encoding works for images and video. A grayscale pixel (0-255) maps directly to signal magnitude — no scaling needed.
+
+### Pipeline
+
+```
+Pixel (u8 grayscale) → PackedSignal (1 byte) → Scanline Delta + Huffman → Wire
+Frame N delta vs Frame N-1 → Delta + Huffman → Wire
 ```
 
-Outputs (next to the input file):
-- `*_original.wav` — clean PCM decode of the MP3 (baseline for A/B)
+### Results (Real MP4, 1440x1080, 30fps)
+
+| Metric | Value |
+|--------|-------|
+| Gray levels after quantization | 10 |
+| PSNR | 18.62 dB |
+| Scanline compression | 1.03 bits/pixel (12.9% of raw) |
+| Frame-to-frame zeros | 88-100% |
+| Encoding speed | 1.58M pixels/ms |
+
+### Video Streaming Bandwidth
+
+| Resolution | @10fps | @15fps |
+|-----------|--------|--------|
+| 320x240 | 990 kbps | 1.5 Mbps |
+| 160x120 | 280 kbps | 420 kbps |
+| 80x60 | 77 kbps | 116 kbps |
+
+80x60 at 10fps costs less bandwidth than the audio stream. A video call at potato quality for 77 kbps.
+
+### Dynamic Resolution Engine
+
+Given a bandwidth budget, the encoder picks the highest resolution that fits the target FPS. Latency goes up, resolution drops instantly. Latency recovers, resolution climbs back.
+
+| Budget | Resolution @10fps |
+|--------|-------------------|
+| 500 kbps | 160x120 |
+| 200 kbps | 80x60 |
+| 100 kbps | 80x60 at 6.4fps |
+
+### Current Limitations
+
+- Only 10 gray levels — the log-quantized LUT was designed for neural signals, not images. Produces a high-contrast monochrome look. Recognizable but rough.
+- openh264 decoder only gets keyframes + some P-frames without full container parsing. More frames would improve temporal compression stats.
+- Audio encoding sounds like vinyl (good). Video encoding looks like a surveillance feed from 1997 (functional but ugly). Audio is the stronger use case today.
+
+---
+
+## Usage
+
+### Audio
+```bash
+cargo build --release
+./target/release/ternsig-audio <input.mp3>
+```
+
+Outputs:
+- `*_original.wav` — clean PCM decode of the MP3 (baseline)
 - `*_encoded.ternsig` — raw ternary bytes (1 byte/sample)
 - `*_compressed.ternsig-c` — TSC1 compressed (delta + Huffman)
-- `*_decoded.wav` — round-tripped through raw ternsig
+- `*_decoded.wav` — round-tripped, no smoothing
 - `*_compressed_decoded.wav` — round-tripped through TSC1 (identical to raw decoded)
 - `*_smoothed_linear.wav` — linear interpolation (2 passes)
 - `*_smoothed_cubic.wav` — cubic Hermite interpolation (2 passes)
+
+### Video
+```bash
+./target/release/ternsig-video <input.mp4|png|jpg>
+```
+
+For images: spatial compression analysis, quantized output, resolution tiers.
+For video: frame extraction, real temporal delta analysis, GIF outputs at 720p/480p/320w.
 
 ---
 
 ## Why This Matters
 
-This is the first proof that Blackfall's ternary signal encoding — designed for neuromorphic spike propagation — can carry audio, and do it more efficiently than MP3.
+This is the first proof that Blackfall's ternary signal encoding — designed for neuromorphic spike propagation — can carry audio and video.
 
-The same `PackedSignal` type used in neuropool membrane integration, databank pattern storage, and ternsig-oscillator synthesis now encodes, compresses, streams, and decodes real-world audio. One signal type across the entire stack.
+The same `PackedSignal` type used in neuropool membrane integration, databank pattern storage, and ternsig-oscillator synthesis now encodes, compresses, streams, and decodes real-world media. One signal type across the entire stack.
 
-- **Lighthouse Radio**: live audio streaming at 2.7–14.8 KB/s per station over LRIN mesh
+- **Lighthouse Radio**: live audio streaming at 2.7-14.8 KB/s per station over LRIN mesh
 - **Voice calls**: ternsig-native voice at ~2.1 KB/s — viable over any connection
+- **Video calls**: 77 kbps at 80x60, 280 kbps at 160x120 — functional over mesh
 - **Phonetic voice engine**: speech synthesis and recognition share the same signal substrate as the neural processing
 - **Temporal field broadcast**: one decompress per station, shared buffer for all subscribers
-- **One signal type everywhere**: storage, compute, transport, and audio all speak PackedSignal
+- **One signal type everywhere**: storage, compute, transport, audio, and video all speak PackedSignal
 
 ---
 
