@@ -85,6 +85,58 @@ fn decode_sample(byte: u8) -> i16 {
 }
 
 // ---------------------------------------------------------------------------
+// Smoothing: post-decode interpolation to soften quantization steps
+// ---------------------------------------------------------------------------
+
+/// Linear interpolation between consecutive decoded samples.
+/// For each original sample, inserts intermediate values so transitions
+/// between quantization levels are gradual, not stepped.
+fn smooth_linear(samples: &[i16], passes: u32) -> Vec<i16> {
+    let mut buf = samples.to_vec();
+    for _ in 0..passes {
+        let prev = buf.clone();
+        for i in 1..buf.len() - 1 {
+            // 3-tap weighted average: 25% prev, 50% self, 25% next
+            let avg = (prev[i - 1] as i32 + 2 * prev[i] as i32 + prev[i + 1] as i32) / 4;
+            buf[i] = avg as i16;
+        }
+    }
+    buf
+}
+
+/// Cubic Hermite interpolation — same algorithm ternsig-oscillator uses.
+/// Smooths using 4-point neighborhoods for natural-feeling curves.
+fn smooth_cubic(samples: &[i16], passes: u32) -> Vec<i16> {
+    let mut buf = samples.to_vec();
+    for _ in 0..passes {
+        let prev = buf.clone();
+        for i in 2..buf.len() - 2 {
+            let p0 = prev[i - 1] as f64;
+            let p1 = prev[i] as f64;
+            let p2 = prev[i + 1] as f64;
+            let p3 = prev[i + 2] as f64;
+
+            // Catmull-Rom at t=0.5 (midpoint tendency)
+            // This pulls the sample toward a smooth curve through its neighbors
+            let t = 0.5;
+            let t2 = t * t;
+            let t3 = t2 * t;
+
+            let v = 0.5
+                * ((2.0 * p1)
+                    + (-p0 + p2) * t
+                    + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
+                    + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3);
+
+            // Blend: 70% original, 30% interpolated to preserve transients
+            let blended = 0.7 * prev[i] as f64 + 0.3 * v;
+            buf[i] = blended.clamp(-32768.0, 32767.0) as i16;
+        }
+    }
+    buf
+}
+
+// ---------------------------------------------------------------------------
 // MP3 decoding
 // ---------------------------------------------------------------------------
 
@@ -305,9 +357,27 @@ fn main() {
         decoded.len() as f64 / decode_ms,
     );
 
-    // Write decoded WAV
-    println!("Writing decoded WAV...");
+    // Write decoded WAV (raw — no smoothing)
+    println!("Writing decoded WAV (raw)...");
     write_wav(&decoded_wav, &decoded, audio.sample_rate, audio.channels);
+
+    // --- Smoothed variants ---
+    let smoothed_linear_wav = parent.join(format!("{}_smoothed_linear.wav", stem));
+    let smoothed_cubic_wav = parent.join(format!("{}_smoothed_cubic.wav", stem));
+
+    println!("Smoothing (linear, 2 passes)...");
+    let t = Instant::now();
+    let smoothed_lin = smooth_linear(&decoded, 2);
+    let lin_ms = t.elapsed().as_secs_f64() * 1000.0;
+    println!("  {:.1}ms", lin_ms);
+    write_wav(&smoothed_linear_wav, &smoothed_lin, audio.sample_rate, audio.channels);
+
+    println!("Smoothing (cubic Hermite, 2 passes)...");
+    let t = Instant::now();
+    let smoothed_cub = smooth_cubic(&decoded, 2);
+    let cub_ms = t.elapsed().as_secs_f64() * 1000.0;
+    println!("  {:.1}ms", cub_ms);
+    write_wav(&smoothed_cubic_wav, &smoothed_cub, audio.sample_rate, audio.channels);
 
     // --- Analysis ---
     println!("\n=== RESULTS ===\n");
@@ -325,11 +395,15 @@ fn main() {
     println!("    Compression vs PCM:  {:>9.1}%", (encoded_size as f64 / pcm_size as f64) * 100.0);
     println!("    Compression vs MP3:  {:>9.1}%", (encoded_size as f64 / input_size as f64) * 100.0);
 
-    let snr = compute_snr(&audio.samples, &decoded);
+    let snr_raw = compute_snr(&audio.samples, &decoded);
+    let snr_lin = compute_snr(&audio.samples, &smoothed_lin);
+    let snr_cub = compute_snr(&audio.samples, &smoothed_cub);
     let distinct = count_distinct_values(&encoded);
 
     println!("\n  Quality:");
-    println!("    SNR:                 {:>10.2} dB", snr);
+    println!("    SNR (raw):           {:>10.2} dB", snr_raw);
+    println!("    SNR (linear smooth): {:>10.2} dB", snr_lin);
+    println!("    SNR (cubic smooth):  {:>10.2} dB", snr_cub);
     println!("    Distinct values:     {:>10} / 256", distinct);
     println!("    Effective bit depth: {:>10.1} bits", (distinct as f64).log2());
 
@@ -351,9 +425,11 @@ fn main() {
     print_value_distribution(&encoded);
 
     println!("\n  Output files:");
-    println!("    Original WAV:  {}", original_wav.display());
-    println!("    Encoded raw:   {}", encoded_path.display());
-    println!("    Decoded WAV:   {}", decoded_wav.display());
-    println!("\n  Listen to both WAVs and compare. The decoded file is what");
-    println!("  ternary-encoded audio sounds like after a full round-trip.");
+    println!("    Original WAV:     {}", original_wav.display());
+    println!("    Encoded raw:      {}", encoded_path.display());
+    println!("    Decoded (raw):    {}", decoded_wav.display());
+    println!("    Decoded (linear): {}", smoothed_linear_wav.display());
+    println!("    Decoded (cubic):  {}", smoothed_cubic_wav.display());
+    println!("\n  A/B compare all three decoded WAVs against the original.");
+    println!("  Raw = vinyl crackle. Linear = softened. Cubic = smooth curves.");
 }
