@@ -6,7 +6,7 @@ description = "Experiment: can audio and video survive a round-trip through tern
 
 [dependencies]
 ternary-signal = { path = "../ternary-signal" }
-symphonia = { version = "0.5", features = ["mp3"] }
+symphonia = { version = "0.5", features = ["mp3", "ogg", "vorbis"] }
 hound = "3.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 mp4 = "0.14"
@@ -20,3 +20,11 @@ path = "src/main.rs"
 [[bin]]
 name = "ternsig-video"
 path = "src/bin/video.rs"
+
+[[bin]]
+name = "sigdiff"
+path = "src/bin/sigdiff.rs"
+
+[[bin]]
+name = "learn"
+path = "src/bin/learn.rs"
