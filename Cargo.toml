@@ -2,6 +2,7 @@
 name = "ternsig-audio-experiment"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Experiment: can audio and video survive a round-trip through ternary signal encoding?"
 
 [dependencies]
